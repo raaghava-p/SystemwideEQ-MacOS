@@ -1,0 +1,6 @@
+PyQt6>=6.5
+sounddevice>=0.4
+numpy>=1.24
+matplotlib>=3.7
+jaraco.functools>=4
+jaraco.text>=3.7
