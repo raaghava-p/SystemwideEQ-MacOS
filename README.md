@@ -3,6 +3,9 @@
 A Python + PyQt6 desktop app that captures all MacOS audio via the BlackHole virtual driver, applies configurable parametric EQ bands in real-time, and forwards the processed mix to your preferred output device, created with GPT-5 codex.
 
 ![ImageOfGUI](https://github.com/raaghava-p/SystemwideEQ-MacOS/blob/f570fdd89ad0c9fd38adf8e06f7c62fe774818fe/6104384A-4D7A-4183-A3A9-5C685E01FAB6.png)
+### Disclaimer
+This code was written with the help of an LLM, so it's public domain. Use at your own risk. I made it because macOS doesn't have a system-wide equalizer, and I’m not sure why.
+
 ## Prerequisites
 - **Homebrew packages**: Install [Homebrew](https://brew.sh) and run `brew install blackhole-2ch portaudio python@3.11` to pull [BlackHole 2ch](https://github.com/ExistentialAudio/BlackHole), [PortAudio](https://www.portaudio.com), and [Python 3.11](https://www.python.org).
 - **Virtual environment**: `python3 -m venv .venv && source .venv/bin/activate`
