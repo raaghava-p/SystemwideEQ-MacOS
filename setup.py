@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from setuptools import setup
 
-APP = ["src/equaliser/__main__.py"]
+APP = ["equaliser/__main__.py"]
 OPTIONS = {
     "argv_emulation": False,
     "iconfile": None,

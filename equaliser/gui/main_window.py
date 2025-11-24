@@ -135,6 +135,18 @@ class EqualiserWindow(QtWidgets.QMainWindow):
         self.band_table.itemChanged.connect(self._on_band_item_changed)
         layout.addWidget(self.band_table)
 
+        self.preamp_slider = QtWidgets.QSlider(QtCore.Qt.Orientation.Horizontal)
+        self.preamp_slider.setRange(-240, 120)
+        self.preamp_slider.setSingleStep(1)
+        self.preamp_slider.setPageStep(5)
+        self.preamp_slider.valueChanged.connect(self._on_preamp_changed)
+        self.preamp_value = QtWidgets.QLabel("0.0 dB")
+        preamp_row = QtWidgets.QHBoxLayout()
+        preamp_row.addWidget(QtWidgets.QLabel("Global Gain / Preamp"))
+        preamp_row.addWidget(self.preamp_slider, 1)
+        preamp_row.addWidget(self.preamp_value)
+        layout.addLayout(preamp_row)
+
         button_row = QtWidgets.QHBoxLayout()
         self.add_band_button = QtWidgets.QPushButton("Add Band")
         self.add_band_button.clicked.connect(self.add_band)
@@ -148,6 +160,8 @@ class EqualiserWindow(QtWidgets.QMainWindow):
         button_row.addStretch(1)
         button_row.addWidget(self.bypass_button)
         layout.addLayout(button_row)
+
+        self.preamp_slider.setValue(-30)  # default -3.0 dB headroom
 
         return group
 
@@ -269,6 +283,11 @@ class EqualiserWindow(QtWidgets.QMainWindow):
     def _push_bands(self) -> None:
         self.audio.set_bands(self.bands)
         self.curve_canvas.update_curve(self.bands, self.sample_rate_spin.value())
+
+    def _on_preamp_changed(self, slider_value: int) -> None:
+        gain_db = slider_value / 10.0
+        self.preamp_value.setText(f"{gain_db:+.1f} dB")
+        self.audio.set_output_gain(gain_db)
 
     # Audio control -----------------------------------------------------
     def start_audio(self) -> None:

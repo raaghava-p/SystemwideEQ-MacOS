@@ -40,6 +40,7 @@ class AudioBackend:
         self._status = queue.Queue(maxsize=32)
         self._bands: List[EQBand] = []
         self._bypass: bool = False
+        self._output_gain_db: float = -3.0
 
     # Device helpers -----------------------------------------------------
     @staticmethod
@@ -72,7 +73,11 @@ class AudioBackend:
         self._create_engine()
 
     def _create_engine(self) -> None:
-        self._engine = EQEngine(sample_rate=self.sample_rate, channels=self.channels)
+        self._engine = EQEngine(
+            sample_rate=self.sample_rate,
+            channels=self.channels,
+            output_gain_db=self._output_gain_db,
+        )
         self._engine.bypass = self._bypass
         if self._bands:
             self._engine.set_bands(self._bands)
@@ -89,6 +94,12 @@ class AudioBackend:
         with self._lock:
             if self._engine:
                 self._engine.bypass = bypass
+
+    def set_output_gain(self, gain_db: float) -> None:
+        self._output_gain_db = gain_db
+        with self._lock:
+            if self._engine:
+                self._engine.set_output_gain(gain_db)
 
     def get_meter(self) -> MeterSnapshot:
         with self._lock:

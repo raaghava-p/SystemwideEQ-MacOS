@@ -16,11 +16,8 @@ dependencies = [
     "matplotlib>=3.7",
 ]
 
-[tool.setuptools.package-dir]
-"" = "src"
-
 [tool.setuptools.packages.find]
-where = ["src"]
+where = ["."]
 
 [project.scripts]
 equaliser-app = "equaliser.__main__:run"

@@ -1,9 +1,9 @@
-# macOS System Parametric EQ
+# Systemwide Equaliser for MacOS
 
-A Python + PyQt6 desktop app that captures all macOS audio via the BlackHole virtual driver, applies configurable parametric EQ bands in real-time, and forwards the processed mix to your preferred output device.
+A Python + PyQt6 desktop app that captures all MacOS audio via the BlackHole virtual driver, applies configurable parametric EQ bands in real-time, and forwards the processed mix to your preferred output device, created with GPT-5 codex.
 
 ## Prerequisites
-- **Homebrew packages**: `brew install blackhole-2ch portaudio python@3.11`
+- **Homebrew packages**: Install [Homebrew](https://brew.sh) and run `brew install blackhole-2ch portaudio python@3.11` to pull [BlackHole 2ch](https://github.com/ExistentialAudio/BlackHole), [PortAudio](https://www.portaudio.com), and [Python 3.11](https://www.python.org).
 - **Virtual environment**: `python3 -m venv .venv && source .venv/bin/activate`
 - **Python deps**: `pip install -r requirements.txt`
 - **Expose the package**: `pip install -e .` (or set `PYTHONPATH=src` before running commands)
@@ -26,6 +26,7 @@ When the GUI opens:
 - Use **Audio Devices** to choose input/output, sample rate (match Audio MIDI Setup), and buffer size (256 frames ≈ 5.3 ms @ 48 kHz).
 - Click **Start Audio**; use **Stop** before changing devices.
 - Add parametric bands with `Add Band`, edit frequency/gain/Q directly in the table, and remove unwanted rows.
+- Use the **Global Gain / Preamp** slider below the band table to trim or boost the overall mix (±12 dB, default -3 dB) for extra headroom.
 - Toggle `EQ Bypass (A/B)` for instant comparison.
 - Watch the live EQ curve and input/output meters to confirm levels.
 
@@ -37,13 +38,13 @@ python3 tools/test_dsp.py --freq 1000 --gain 6 --q 1.5 --duration 1.0
 This generates a sine wave, runs it through the EQ engine, and prints RMS levels.
 
 ## Troubleshooting
-- **No sound**: Confirm macOS output is set to the Multi-Output Device and that this app shows `Audio running` in the status bar. Restart the audio stream after changing system devices.
+- **No sound**: Confirm MacOS output is set to the Multi-Output Device and that this app shows `Audio running` in the status bar. Restart the audio stream after changing system devices.
 - **Device missing**: Click `Refresh`. If BlackHole is absent, reinstall via Homebrew and reopen Audio MIDI Setup.
 - **Pops or latency**: Lower the buffer size, close heavy apps, or lock everything to the same sample rate (44.1 kHz or 48 kHz). Larger buffers add latency but increase stability.
 - **Clipping**: Reduce band gain or enable negative overall gain in the DSP (default -3 dB headroom). Watch the meters; anything near 0 dBFS risks clipping.
 - **Permission errors**: Allow microphone/input monitoring for the terminal/Python interpreter in System Settings.
 
-## Building the macOS App Bundle (py2app)
+## Building the MacOS App Bundle (py2app)
 Use `py2app` when you want a self-contained `.app` bundle that can be launched from Finder like any other macOS application.
 
 ```bash

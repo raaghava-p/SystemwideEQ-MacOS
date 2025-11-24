@@ -5,10 +5,12 @@ Summary: System-wide parametric EQ for macOS routed through BlackHole
 Author: Raaghava
 Requires-Python: >=3.10
 Description-Content-Type: text/markdown
+License-File: LICENSE
 Requires-Dist: PyQt6>=6.5
 Requires-Dist: sounddevice>=0.4
 Requires-Dist: numpy>=1.24
 Requires-Dist: matplotlib>=3.7
+Dynamic: license-file
 
 # macOS System Parametric EQ
 
@@ -18,7 +20,7 @@ A Python + PyQt6 desktop app that captures all macOS audio via the BlackHole vir
 - **Homebrew packages**: `brew install blackhole-2ch portaudio python@3.11`
 - **Virtual environment**: `python3 -m venv .venv && source .venv/bin/activate`
 - **Python deps**: `pip install -r requirements.txt`
-- **Expose the package**: `pip install -e .` (or set `PYTHONPATH=src` before running commands)
+- **Expose the package**: `pip install -e .`
 - Grant microphone/input permissions to the terminal or app bundle when macOS prompts you.
 
 ## Device Routing Setup
