@@ -10,6 +10,7 @@ from matplotlib.figure import Figure
 
 from equaliser.audio.stream import AudioBackend, DeviceMetadata
 from equaliser.dsp import EQBand
+from equaliser import storage
 from .plotting import frequency_response
 
 
@@ -76,6 +77,7 @@ class EqualiserWindow(QtWidgets.QMainWindow):
         self.setStatusBar(self.status_bar)
 
         self.device_refresh()
+        self._load_session()
 
         self.meter_timer = QtCore.QTimer(self)
         self.meter_timer.timeout.connect(self._poll_meters)
@@ -160,6 +162,24 @@ class EqualiserWindow(QtWidgets.QMainWindow):
         button_row.addStretch(1)
         button_row.addWidget(self.bypass_button)
         layout.addLayout(button_row)
+
+        preset_row = QtWidgets.QHBoxLayout()
+        preset_row.addWidget(QtWidgets.QLabel("Presets:"))
+        self.preset_combo = QtWidgets.QComboBox()
+        self.preset_combo.setMinimumWidth(150)
+        self._refresh_preset_list()
+        preset_row.addWidget(self.preset_combo)
+        self.load_preset_button = QtWidgets.QPushButton("Load")
+        self.load_preset_button.clicked.connect(self._load_selected_preset)
+        self.save_preset_button = QtWidgets.QPushButton("Save As...")
+        self.save_preset_button.clicked.connect(self._save_preset_dialog)
+        self.delete_preset_button = QtWidgets.QPushButton("Delete")
+        self.delete_preset_button.clicked.connect(self._delete_selected_preset)
+        preset_row.addWidget(self.load_preset_button)
+        preset_row.addWidget(self.save_preset_button)
+        preset_row.addWidget(self.delete_preset_button)
+        preset_row.addStretch(1)
+        layout.addLayout(preset_row)
 
         self.preamp_slider.setValue(-30)  # default -3.0 dB headroom
 
@@ -313,6 +333,7 @@ class EqualiserWindow(QtWidgets.QMainWindow):
         self.status_bar.showMessage("Audio stopped", 2000)
 
     def closeEvent(self, event: QtGui.QCloseEvent) -> None:  # noqa: N802
+        self._save_session()
         self.audio.close()
         return super().closeEvent(event)
 
@@ -342,6 +363,85 @@ class EqualiserWindow(QtWidgets.QMainWindow):
     def _poll_backend_status(self) -> None:
         for message in self.audio.poll_status():
             self.status_log.appendPlainText(message)
+
+    # Persistence -----------------------------------------------------------
+    def _get_current_gain(self) -> float:
+        """Get current preamp gain in dB from slider value."""
+        return self.preamp_slider.value() / 10.0
+
+    def _save_session(self) -> None:
+        """Save current state to session file."""
+        storage.save_session(self.bands, self._get_current_gain())
+
+    def _load_session(self) -> None:
+        """Load session state from disk if available."""
+        result = storage.load_session()
+        if result is None:
+            return
+        bands, output_gain_db = result
+        self._apply_preset(bands, output_gain_db)
+        self.status_bar.showMessage("Session restored", 2000)
+
+    def _apply_preset(self, bands: List[EQBand], output_gain_db: float) -> None:
+        """Apply a preset to the UI and audio backend."""
+        self._updating_table = True
+        self.band_table.setRowCount(0)
+        self.bands.clear()
+        for band in bands:
+            self.bands.append(band)
+            self._append_band_row(band)
+        self._updating_table = False
+        self.preamp_slider.setValue(int(output_gain_db * 10))
+        self._push_bands()
+
+    def _refresh_preset_list(self) -> None:
+        """Refresh the preset combo box with available presets."""
+        self.preset_combo.clear()
+        for name in storage.list_presets():
+            self.preset_combo.addItem(name)
+
+    def _save_preset_dialog(self) -> None:
+        """Show dialog to save current preset with a name."""
+        name, ok = QtWidgets.QInputDialog.getText(
+            self, "Save Preset", "Preset name:"
+        )
+        if ok and name.strip():
+            name = name.strip()
+            storage.save_preset(name, self.bands, self._get_current_gain())
+            self._refresh_preset_list()
+            idx = self.preset_combo.findText(name)
+            if idx >= 0:
+                self.preset_combo.setCurrentIndex(idx)
+            self.status_bar.showMessage(f"Preset '{name}' saved", 2000)
+
+    def _load_selected_preset(self) -> None:
+        """Load the currently selected preset."""
+        name = self.preset_combo.currentText()
+        if not name:
+            return
+        result = storage.load_preset(name)
+        if result is None:
+            self.status_bar.showMessage(f"Preset '{name}' not found", 2000)
+            return
+        bands, output_gain_db = result
+        self._apply_preset(bands, output_gain_db)
+        self.status_bar.showMessage(f"Preset '{name}' loaded", 2000)
+
+    def _delete_selected_preset(self) -> None:
+        """Delete the currently selected preset."""
+        name = self.preset_combo.currentText()
+        if not name:
+            return
+        reply = QtWidgets.QMessageBox.question(
+            self,
+            "Delete Preset",
+            f"Delete preset '{name}'?",
+            QtWidgets.QMessageBox.StandardButton.Yes | QtWidgets.QMessageBox.StandardButton.No,
+        )
+        if reply == QtWidgets.QMessageBox.StandardButton.Yes:
+            storage.delete_preset(name)
+            self._refresh_preset_list()
+            self.status_bar.showMessage(f"Preset '{name}' deleted", 2000)
 
 
 def run() -> None:

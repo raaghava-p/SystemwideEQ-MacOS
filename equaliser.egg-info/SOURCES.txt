@@ -5,6 +5,7 @@ setup.py
 equaliser/__init__.py
 equaliser/__main__.py
 equaliser/runtime.py
+equaliser/storage.py
 equaliser.egg-info/PKG-INFO
 equaliser.egg-info/SOURCES.txt
 equaliser.egg-info/dependency_links.txt

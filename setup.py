@@ -6,7 +6,7 @@ from setuptools import setup
 APP = ["equaliser/__main__.py"]
 OPTIONS = {
     "argv_emulation": False,
-    "iconfile": None,
+    "iconfile": "equaliser.icns",
     "includes": [
         "matplotlib.backends.backend_qtagg",
         "numpy",
