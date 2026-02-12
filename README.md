@@ -2,82 +2,89 @@
   <img src="docs/icon.png" width="128" alt="Equaliser icon">
 </p>
 
-# Systemwide Equaliser for MacOS
+<h1 align="center">Systemwide Equaliser</h1>
 
-A Python + PyQt6 desktop app that captures all MacOS audio via the BlackHole virtual driver, applies configurable parametric EQ bands in real-time, and forwards the processed mix to your preferred output device, created with the help of LLMs.
-
-### Disclaimer
-This code was written with the help of an LLM, so it's public domain. Use at your own risk. I made it because macOS doesn't have a system-wide equalizer, and I'm not sure why.
-
-## Prerequisites
-- **Homebrew packages**: Install [Homebrew](https://brew.sh) and run `brew install blackhole-2ch portaudio python@3.13` to pull [BlackHole 2ch](https://github.com/ExistentialAudio/BlackHole), [PortAudio](https://www.portaudio.com), and [Python 3.13](https://www.python.org). Python 3.10+ is supported.
-- **Virtual environment**: `python3 -m venv .venv && source .venv/bin/activate`
-- **Python deps**: `pip install -r requirements.txt`
-- **Expose the package**: `pip install -e .` (or set `PYTHONPATH=src` before running commands)
-- Grant microphone/input permissions to the terminal or app bundle when macOS prompts you.
-
-> **Important (PyQt6 version)**: This app requires PyQt6 6.5–6.7.x. PyQt6 6.8+ has a known bug on macOS ARM64 (Apple Silicon) where the Qt "cocoa" platform plugin fails to load. The `requirements.txt` already pins to `<6.8`.
-
-## Device Routing Setup
-1. Open **Audio MIDI Setup** ➝ click `+` ➝ **Create Multi-Output Device**.
-2. Enable **BlackHole** and your real speakers/headphones. Set the physical device as the master clock and enable drift correction on BlackHole.
-3. (Optional) Create an **Aggregate Device** when you need DAW capture + playback simultaneously.
-4. In **System Settings → Sound → Output**, select the Multi-Output Device so all system audio flows into BlackHole.
-5. Launch this app and pick **BlackHole** as the input device, and the physical device as the output device.
-
-## Running the App
-```bash
-source .venv/bin/activate
-pip install -e .  # ensures `python -m equaliser` works without tweaking PYTHONPATH
-python -m equaliser
-```
-
-## Usage
+<p align="center">
+Parametric EQ that sits between your system audio and your speakers.<br>
+macOS doesn't have one built in, so here we are.
+</p>
 
 ![Screenshot](docs/screenshot.png)
 
-- Use **Audio Devices** to choose input/output, sample rate (match Audio MIDI Setup), and buffer size (256 frames ≈ 5.3 ms @ 48 kHz).
-- Click **Start Audio**; use **Stop** before changing devices.
-- Add parametric bands with `Add Band`, edit frequency/gain/Q directly in the table, and remove unwanted rows.
-- Use the **Global Gain / Preamp** slider below the band table to trim or boost the overall mix (±12 dB, default -3 dB) for extra headroom.
-- Toggle `EQ Bypass (A/B)` for instant comparison.
-- Watch the live EQ curve and input/output meters to confirm levels.
+> Built with LLMs. Public domain. Do whatever you want with it (at your own risk).
 
-## Testing the DSP Core
-Use the offline harness to validate the filter math without real audio hardware:
+## Install
+
+You need [Homebrew](https://brew.sh), then:
+
 ```bash
-python3 scripts/test_dsp.py --freq 1000 --gain 6 --q 1.5 --duration 1.0
+brew install blackhole-2ch portaudio python@3.13
+git clone https://github.com/raaghava-p/SystemwideEQ-MacOS.git
+cd SystemwideEQ-MacOS
+python3 -m venv .venv && source .venv/bin/activate
+pip install -r requirements.txt && pip install -e .
+python -m equaliser
 ```
-This generates a sine wave, runs it through the EQ engine, and prints RMS levels.
 
-## Troubleshooting
-- **No sound**: Confirm MacOS output is set to the Multi-Output Device and that this app shows `Audio running` in the status bar. Restart the audio stream after changing system devices.
-- **Device missing**: Click `Refresh`. If BlackHole is absent, reinstall via Homebrew and reopen Audio MIDI Setup.
-- **Pops or latency**: Lower the buffer size, close heavy apps, or lock everything to the same sample rate (44.1 kHz or 48 kHz). Larger buffers add latency but increase stability.
-- **Clipping**: Reduce band gain or enable negative overall gain in the DSP (default -3 dB headroom). Watch the meters; anything near 0 dBFS risks clipping.
-- **Permission errors**: Allow microphone/input monitoring for the terminal/Python interpreter in System Settings.
-- **Qt cocoa plugin not found**: If you see `qt.qpa.plugin: Could not find the Qt platform plugin "cocoa"`, this is caused by PyQt6 6.8+ on Apple Silicon. Downgrade to PyQt6 6.7.1:
-  ```bash
-  pip install "PyQt6>=6.5,<6.8" "PyQt6-Qt6>=6.5,<6.8"
-  ```
-- **App doesn't start after moving project**: If you moved the project directory, the venv may have stale paths. Recreate it:
-  ```bash
-  rm -rf .venv && python3 -m venv .venv && source .venv/bin/activate && pip install -r requirements.txt && pip install -e .
-  ```
+**One thing** — PyQt6 6.8+ is broken on Apple Silicon. The requirements
+file already pins it to <6.8 so you shouldn't hit this, but if you do:
+`pip install "PyQt6>=6.5,<6.8" "PyQt6-Qt6>=6.5,<6.8"`.
 
-## Building the MacOS App Bundle (py2app)
-Use `py2app` when you want a self-contained `.app` bundle that can be launched from Finder like any other macOS application.
+## Route Your Audio
+
+The app needs to intercept system audio. [BlackHole](https://github.com/ExistentialAudio/BlackHole) makes this possible but you have to wire it up once:
+
+1. **Audio MIDI Setup** → `+` → Create Multi-Output Device
+2. Check **BlackHole 2ch** and your speakers/headphones
+3. Physical device = master clock, drift correction on for BlackHole
+4. **System Settings → Sound → Output** → select the Multi-Output Device
+
+After that, all system audio goes through BlackHole and the app can process it.
+
+## Use It
+
+1. Set BlackHole as input, your speakers as output
+2. Match the sample rate to Audio MIDI Setup (48 kHz is usually right)
+3. Start audio
+4. Add EQ bands, edit freq/gain/Q in the table
+5. Preamp slider gives you ±12 dB of headroom
+6. A/B bypass to compare
+7. Save presets — last session restores automatically
+
+<details>
+<summary>Troubleshooting</summary>
+
+| Problem | Fix |
+|---|---|
+| No sound | System output probably isn't set to the Multi-Output Device |
+| Missing device | Hit Refresh. Might need to `brew install blackhole-2ch` again. |
+| Pops/latency | Lower buffer size or make sure sample rates match everywhere |
+| Clipping | Turn down band gains or the preamp |
+| cocoa plugin error | PyQt6 too new. Pin to <6.8. |
+| Broken after moving folder | Venv has stale paths. Nuke it: `rm -rf .venv` and redo setup. |
+| Permission error | Terminal needs mic access — System Settings → Privacy & Security |
+
+</details>
+
+<details>
+<summary>Build standalone app</summary>
 
 ```bash
-python -m venv .venv && source .venv/bin/activate
-pip install -r requirements.txt -r requirements-dev.txt
-pip install -e .
+pip install -r requirements-dev.txt
 python scripts/build_app.py py2app
 ```
 
-The build drops `dist/Equaliser.app`. Copy that bundle into `/Applications` (or anywhere else) and launch it; the first run may take a few seconds while macOS verifies the binary. If you plan to distribute the app beyond your own machine, follow Apple’s signing/notarization flow after running `py2app`.
+Gives you `dist/Equaliser.app`. Drag it to Applications.
 
-## Known Limitations
-- Uses the system default stereo sample format; surround formats are not yet supported.
-- Requires the app to keep running; background/menubar packaging not provided.
-- Device hot-plugging is not automatic—stop/start the stream after wiring changes.
+</details>
+
+<details>
+<summary>Limitations</summary>
+
+- Stereo only
+- Has to stay running — no menubar mode
+- Swap devices = stop and restart the stream
+
+</details>
+
+<p align="center"><sub><a href="LICENSE">Unlicense</a></sub></p>
