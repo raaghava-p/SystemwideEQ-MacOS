@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "equaliser"
-version = "0.2.0"
+version = "0.3.0"
 description = "System-wide parametric EQ for macOS routed through BlackHole"
 authors = [{name = "Raaghava"}]
 readme = "README.md"

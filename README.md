@@ -46,10 +46,15 @@ After that, all system audio goes through BlackHole and the app can process it.
 1. Set BlackHole as input, your speakers as output
 2. Match the sample rate to Audio MIDI Setup (48 kHz is usually right)
 3. Start audio
-4. Add EQ bands, edit freq/gain/Q in the table
-5. Preamp slider gives you ±12 dB of headroom
-6. A/B bypass to compare
-7. Save presets — last session restores automatically
+4. Add EQ bands — five filter types available: peaking, low shelf, high shelf, high pass, low pass
+5. Toggle individual bands on/off with the checkbox column
+6. Preamp slider gives you ±12 dB of headroom
+7. A/B bypass to compare
+8. Import [AutoEQ](https://github.com/jaakkopasanen/AutoEq) headphone profiles (ParametricEQ.txt)
+9. Save presets — last session restores automatically
+
+The spectrum analyzer overlays live frequency content on the EQ curve.
+Peak hold markers on the meters show recent maximums.
 
 <details>
 <summary>Troubleshooting</summary>
@@ -82,7 +87,6 @@ Gives you `dist/Equaliser.app`. Drag it to Applications.
 <summary>Limitations</summary>
 
 - Stereo only
-- Has to stay running — no menubar mode
 - Swap devices = stop and restart the stream
 
 </details>
