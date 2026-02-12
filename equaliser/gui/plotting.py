@@ -5,7 +5,7 @@ from typing import Iterable, Tuple
 
 import numpy as np
 
-from equaliser.dsp import EQBand, design_peaking_eq
+from equaliser.dsp import EQBand, design_biquad
 
 
 def frequency_response(bands: Iterable[EQBand], sample_rate: float, points: int = 512) -> Tuple[np.ndarray, np.ndarray]:
@@ -13,7 +13,7 @@ def frequency_response(bands: Iterable[EQBand], sample_rate: float, points: int 
     w = 2 * np.pi * freqs / sample_rate
     response = np.ones(points, dtype=np.complex128)
     for band in bands:
-        b, a = design_peaking_eq(band, sample_rate)
+        b, a = design_biquad(band, sample_rate)
         # Match the runtime filter (a0 normalized to 1)
         b = b / a[0]
         a = a / a[0]

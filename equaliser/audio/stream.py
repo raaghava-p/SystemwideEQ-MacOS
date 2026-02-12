@@ -78,12 +78,13 @@ class AudioBackend:
             channels=self.channels,
             output_gain_db=self._output_gain_db,
         )
+        self._engine.preallocate(self.block_size)
         self._engine.bypass = self._bypass
         if self._bands:
             self._engine.set_bands(self._bands)
 
     def set_bands(self, bands: List[EQBand]) -> None:
-        copies = [EQBand(b.frequency, b.gain_db, b.q, b.enabled) for b in bands]
+        copies = [EQBand(b.frequency, b.gain_db, b.q, b.filter_type, b.enabled) for b in bands]
         with self._lock:
             self._bands = copies
             if self._engine:

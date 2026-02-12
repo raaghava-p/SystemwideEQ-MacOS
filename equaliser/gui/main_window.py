@@ -1,6 +1,8 @@
 """PyQt6 main window for the system-wide EQ."""
 from __future__ import annotations
 
+import math
+from pathlib import Path
 from typing import List, Optional
 
 import numpy as np
@@ -9,8 +11,9 @@ from matplotlib.backends.backend_qtagg import FigureCanvasQTAgg
 from matplotlib.figure import Figure
 
 from equaliser.audio.stream import AudioBackend, DeviceMetadata
-from equaliser.dsp import EQBand
+from equaliser.dsp import EQBand, FILTER_TYPES
 from equaliser import storage
+from equaliser.autoeq import parse_autoeq_file
 from .plotting import frequency_response
 
 
@@ -26,6 +29,42 @@ INSTRUCTIONS = """System Audio Routing
 """
 
 
+class PeakMeterBar(QtWidgets.QProgressBar):
+    """QProgressBar with a red peak-hold tick mark."""
+
+    def __init__(self, parent: QtWidgets.QWidget | None = None) -> None:
+        super().__init__(parent)
+        self._peak_hold_value: float = -60.0
+        self._hold_ticks: int = 0  # ticks remaining at hold
+        self._HOLD_DURATION: int = 10  # ticks (~1s at 100ms poll)
+        self._DECAY_RATE: float = 1.5  # dB per tick
+
+    def update_peak(self, new_peak_db: float) -> None:
+        if new_peak_db > self._peak_hold_value:
+            self._peak_hold_value = new_peak_db
+            self._hold_ticks = self._HOLD_DURATION
+        elif self._hold_ticks > 0:
+            self._hold_ticks -= 1
+        else:
+            self._peak_hold_value = max(
+                float(self.minimum()), self._peak_hold_value - self._DECAY_RATE
+            )
+
+    def paintEvent(self, event: QtGui.QPaintEvent) -> None:  # noqa: N802
+        super().paintEvent(event)
+        if self._peak_hold_value <= self.minimum():
+            return
+        painter = QtGui.QPainter(self)
+        painter.setPen(QtGui.QPen(QtGui.QColor(255, 40, 40), 2))
+        r = self.rect()
+        frac = (self._peak_hold_value - self.minimum()) / max(
+            1, self.maximum() - self.minimum()
+        )
+        x = int(r.left() + frac * r.width())
+        painter.drawLine(x, r.top() + 1, x, r.bottom() - 1)
+        painter.end()
+
+
 class EQCurveCanvas(FigureCanvasQTAgg):
     def __init__(self) -> None:
         fig = Figure(figsize=(5, 3), tight_layout=True)
@@ -38,6 +77,15 @@ class EQCurveCanvas(FigureCanvasQTAgg):
         self.ax.set_ylabel("Gain (dB)")
         self.line, = self.ax.plot([], [], color="orange")
         self.ax.grid(True, which="both", ls=":", lw=0.5)
+        # Spectrum analyzer overlay (secondary y-axis)
+        self.ax2 = self.ax.twinx()
+        self.ax2.set_ylim(-80, 0)
+        self.ax2.set_ylabel("Level (dBFS)")
+        self.spectrum_line, = self.ax2.plot([], [], color="cyan", alpha=0.4, lw=1)
+        # Cached FFT state (computed on GUI thread, not in RT audio)
+        self._fft_window: Optional[np.ndarray] = None
+        self._fft_freqs: Optional[np.ndarray] = None
+        self._fft_sr: float = 0.0
 
     def update_curve(self, bands: List[EQBand], sample_rate: float) -> None:
         if not bands:
@@ -48,6 +96,28 @@ class EQCurveCanvas(FigureCanvasQTAgg):
         self.line.set_data(freqs, np.clip(magnitude, -24, 24))
         self.draw_idle()
 
+    def update_spectrum(self, mono_block: np.ndarray, sample_rate: float) -> None:
+        """Compute FFT from a mono audio block and update the spectrum line.
+
+        All FFT math runs here on the GUI thread, not in the RT audio callback.
+        """
+        n = len(mono_block)
+        if n < 2:
+            return
+        if (self._fft_window is None or len(self._fft_window) != n
+                or self._fft_sr != sample_rate):
+            self._fft_window = np.hanning(n)
+            self._fft_freqs = np.fft.rfftfreq(n, 1.0 / sample_rate)
+            self._fft_sr = sample_rate
+        windowed = mono_block * self._fft_window
+        fft = np.fft.rfft(windowed)
+        magnitude = np.abs(fft) * 2.0 / n
+        magnitude[0] /= 2.0  # DC component
+        with np.errstate(divide="ignore"):
+            db = 20 * np.log10(magnitude + 1e-20)
+        db = np.clip(db, -120.0, 0.0)
+        self.spectrum_line.set_data(self._fft_freqs, db)
+
 
 class EqualiserWindow(QtWidgets.QMainWindow):
     def __init__(self) -> None:
@@ -57,6 +127,7 @@ class EqualiserWindow(QtWidgets.QMainWindow):
         self.audio = AudioBackend()
         self.bands: List[EQBand] = []
         self._updating_table = False
+        self._quitting = False
 
         central = QtWidgets.QWidget()
         self.setCentralWidget(central)
@@ -78,6 +149,7 @@ class EqualiserWindow(QtWidgets.QMainWindow):
 
         self.device_refresh()
         self._load_session()
+        self._setup_tray_icon()
 
         self.meter_timer = QtCore.QTimer(self)
         self.meter_timer.timeout.connect(self._poll_meters)
@@ -130,10 +202,14 @@ class EqualiserWindow(QtWidgets.QMainWindow):
         group = QtWidgets.QGroupBox("Parametric EQ Bands")
         layout = QtWidgets.QVBoxLayout(group)
 
-        self.band_table = QtWidgets.QTableWidget(0, 3)
-        self.band_table.setHorizontalHeaderLabels(["Frequency (Hz)", "Gain (dB)", "Q"])
+        self.band_table = QtWidgets.QTableWidget(0, 5)
+        self.band_table.setHorizontalHeaderLabels(
+            ["On", "Type", "Frequency (Hz)", "Gain (dB)", "Q"]
+        )
         self.band_table.horizontalHeader().setStretchLastSection(True)
         self.band_table.verticalHeader().setVisible(False)
+        self.band_table.setColumnWidth(0, 40)
+        self.band_table.setColumnWidth(1, 90)
         self.band_table.itemChanged.connect(self._on_band_item_changed)
         layout.addWidget(self.band_table)
 
@@ -175,9 +251,12 @@ class EqualiserWindow(QtWidgets.QMainWindow):
         self.save_preset_button.clicked.connect(self._save_preset_dialog)
         self.delete_preset_button = QtWidgets.QPushButton("Delete")
         self.delete_preset_button.clicked.connect(self._delete_selected_preset)
+        self.import_autoeq_button = QtWidgets.QPushButton("Import AutoEQ...")
+        self.import_autoeq_button.clicked.connect(self._import_autoeq)
         preset_row.addWidget(self.load_preset_button)
         preset_row.addWidget(self.save_preset_button)
         preset_row.addWidget(self.delete_preset_button)
+        preset_row.addWidget(self.import_autoeq_button)
         preset_row.addStretch(1)
         layout.addLayout(preset_row)
 
@@ -218,7 +297,7 @@ class EqualiserWindow(QtWidgets.QMainWindow):
         layout = QtWidgets.QHBoxLayout(widget)
         layout.setContentsMargins(0, 0, 0, 0)
         layout.addWidget(QtWidgets.QLabel(label))
-        bar = QtWidgets.QProgressBar()
+        bar = PeakMeterBar()
         bar.setRange(-60, 0)
         bar.setFormat("%v dBFS")
         bar.setValue(-60)
@@ -264,14 +343,63 @@ class EqualiserWindow(QtWidgets.QMainWindow):
         self._push_bands()
 
     def _append_band_row(self, band: EQBand) -> None:
+        was_updating = self._updating_table
         self._updating_table = True
         row = self.band_table.rowCount()
         self.band_table.insertRow(row)
-        for col, value in enumerate([band.frequency, band.gain_db, band.q]):
+        # Column 0: enabled checkbox
+        chk = QtWidgets.QTableWidgetItem()
+        chk.setFlags(QtCore.Qt.ItemFlag.ItemIsUserCheckable | QtCore.Qt.ItemFlag.ItemIsEnabled)
+        chk.setCheckState(
+            QtCore.Qt.CheckState.Checked if band.enabled else QtCore.Qt.CheckState.Unchecked
+        )
+        self.band_table.setItem(row, 0, chk)
+        # Column 1: filter type combo
+        combo = QtWidgets.QComboBox()
+        combo.addItems(FILTER_TYPES)
+        combo.setCurrentText(band.filter_type)
+        combo.currentTextChanged.connect(lambda text, c=combo: self._on_filter_type_changed(c, text))
+        self.band_table.setCellWidget(row, 1, combo)
+        # Columns 2-4: frequency, gain, Q
+        for col, value in enumerate([band.frequency, band.gain_db, band.q], start=2):
             item = QtWidgets.QTableWidgetItem(f"{value:.3f}")
             item.setData(QtCore.Qt.ItemDataRole.UserRole, value)
             self.band_table.setItem(row, col, item)
-        self._updating_table = False
+        self._update_gain_editable(row, band.filter_type)
+        self._updating_table = was_updating
+
+    def _on_filter_type_changed(self, combo: QtWidgets.QComboBox, text: str) -> None:
+        if self._updating_table:
+            return
+        # Resolve the actual row at signal time to avoid stale captured indices
+        row = -1
+        for r in range(self.band_table.rowCount()):
+            if self.band_table.cellWidget(r, 1) is combo:
+                row = r
+                break
+        if row < 0 or row >= len(self.bands):
+            return
+        self.bands[row].filter_type = text
+        self._update_gain_editable(row, text)
+        self._push_bands()
+
+    def _update_gain_editable(self, row: int, filter_type: str) -> None:
+        """Disable the Gain cell for filter types that ignore it (HP/LP)."""
+        gain_item = self.band_table.item(row, 3)
+        if gain_item is None:
+            return
+        if filter_type in ("highpass", "lowpass"):
+            gain_item.setFlags(
+                gain_item.flags() & ~QtCore.Qt.ItemFlag.ItemIsEditable
+            )
+            gain_item.setForeground(QtGui.QColor(150, 150, 150))
+        else:
+            gain_item.setFlags(
+                gain_item.flags() | QtCore.Qt.ItemFlag.ItemIsEditable
+            )
+            gain_item.setForeground(
+                self.band_table.palette().color(QtGui.QPalette.ColorRole.Text)
+            )
 
     def remove_selected_band(self) -> None:
         rows = sorted({idx.row() for idx in self.band_table.selectedIndexes()}, reverse=True)
@@ -285,18 +413,27 @@ class EqualiserWindow(QtWidgets.QMainWindow):
         if self._updating_table:
             return
         row, col = item.row(), item.column()
+        if row < 0 or row >= len(self.bands):
+            return
+        band = self.bands[row]
+        if col == 0:
+            band.enabled = item.checkState() == QtCore.Qt.CheckState.Checked
+            self._push_bands()
+            return
+        if col == 1:
+            # Type column handled by combo widget signal
+            return
         try:
             value = float(item.text())
         except ValueError:
             value = float(item.data(QtCore.Qt.ItemDataRole.UserRole) or 0.0)
         item.setText(f"{value:.3f}")
         item.setData(QtCore.Qt.ItemDataRole.UserRole, value)
-        band = self.bands[row]
-        if col == 0:
+        if col == 2:
             band.frequency = value
-        elif col == 1:
+        elif col == 3:
             band.gain_db = value
-        elif col == 2:
+        elif col == 4:
             band.q = value
         self._push_bands()
 
@@ -333,12 +470,21 @@ class EqualiserWindow(QtWidgets.QMainWindow):
         self.status_bar.showMessage("Audio stopped", 2000)
 
     def closeEvent(self, event: QtGui.QCloseEvent) -> None:  # noqa: N802
-        self._save_session()
-        self.audio.close()
-        return super().closeEvent(event)
+        if self._quitting:
+            super().closeEvent(event)
+            return
+        if self.tray_icon.isVisible():
+            self._save_session()
+            self.hide()
+            event.ignore()
+            return
+        self._quit_app()
+        super().closeEvent(event)
 
     def _toggle_bypass(self, checked: bool) -> None:
         self.audio.set_bypass(checked)
+        if hasattr(self, "tray_bypass_action"):
+            self.tray_bypass_action.setChecked(checked)
         if checked:
             self.status_bar.showMessage("EQ bypassed (direct signal)", 2000)
         else:
@@ -350,15 +496,87 @@ class EqualiserWindow(QtWidgets.QMainWindow):
             return None
         return combo.currentData()
 
+    # Tray icon ---------------------------------------------------------
+    def _setup_tray_icon(self) -> None:
+        icon_path = Path(__file__).resolve().parents[2] / "docs" / "icon.png"
+        if icon_path.is_file():
+            icon = QtGui.QIcon(str(icon_path))
+        else:
+            icon = self.style().standardIcon(QtWidgets.QStyle.StandardPixmap.SP_MediaVolume)
+        self.tray_icon = QtWidgets.QSystemTrayIcon(icon, self)
+        self.tray_icon.activated.connect(self._on_tray_activated)
+
+        menu = QtWidgets.QMenu()
+        self.tray_show_action = menu.addAction("Show/Hide Window")
+        self.tray_show_action.triggered.connect(self._toggle_window_visibility)
+        menu.addSeparator()
+        self.tray_bypass_action = menu.addAction("Bypass EQ")
+        self.tray_bypass_action.setCheckable(True)
+        self.tray_bypass_action.setChecked(self.bypass_button.isChecked())
+        self.tray_bypass_action.triggered.connect(self._tray_toggle_bypass)
+        menu.addSeparator()
+        self.tray_presets_menu = menu.addMenu("Presets")
+        self._refresh_tray_presets()
+        menu.addSeparator()
+        quit_action = menu.addAction("Quit")
+        quit_action.triggered.connect(self._quit_app)
+
+        self.tray_icon.setContextMenu(menu)
+        self.tray_icon.show()
+
+    def _on_tray_activated(self, reason: QtWidgets.QSystemTrayIcon.ActivationReason) -> None:
+        if reason == QtWidgets.QSystemTrayIcon.ActivationReason.Trigger:
+            self._toggle_window_visibility()
+
+    def _toggle_window_visibility(self) -> None:
+        if self.isVisible():
+            self.hide()
+        else:
+            self.show()
+            self.raise_()
+            self.activateWindow()
+
+    def _tray_toggle_bypass(self, checked: bool) -> None:
+        self.bypass_button.setChecked(checked)
+        self._toggle_bypass(checked)
+
+    def _refresh_tray_presets(self) -> None:
+        self.tray_presets_menu.clear()
+        for name in storage.list_presets():
+            action = self.tray_presets_menu.addAction(name)
+            action.triggered.connect(lambda checked, n=name: self._tray_load_preset(n))
+
+    def _tray_load_preset(self, name: str) -> None:
+        result = storage.load_preset(name)
+        if result is None:
+            return
+        bands, output_gain_db = result
+        self._apply_preset(bands, output_gain_db)
+
+    def _quit_app(self) -> None:
+        if self._quitting:
+            return
+        self._quitting = True
+        self._save_session()
+        self.audio.close()
+        self.tray_icon.hide()
+        QtWidgets.QApplication.quit()
+
     # Telemetry ---------------------------------------------------------
     def _poll_meters(self) -> None:
         meter = self.audio.get_meter()
-        self._set_meter(self.input_meter, meter.input_dbfs)
-        self._set_meter(self.output_meter, meter.output_dbfs)
+        self._set_meter(self.input_meter, meter.input_dbfs, meter.input_peak_dbfs)
+        self._set_meter(self.output_meter, meter.output_dbfs, meter.output_peak_dbfs)
+        if meter.spectrum_block is not None:
+            self.curve_canvas.update_spectrum(
+                meter.spectrum_block.copy(), self.sample_rate_spin.value()
+            )
+            self.curve_canvas.draw_idle()
 
-    def _set_meter(self, widget: QtWidgets.QWidget, value_db: float) -> None:
-        bar = widget.progress  # type: ignore[attr-defined]
+    def _set_meter(self, widget: QtWidgets.QWidget, value_db: float, peak_db: float = -120.0) -> None:
+        bar: PeakMeterBar = widget.progress  # type: ignore[attr-defined]
         bar.setValue(int(value_db))
+        bar.update_peak(peak_db)
 
     def _poll_backend_status(self) -> None:
         for message in self.audio.poll_status():
@@ -384,13 +602,14 @@ class EqualiserWindow(QtWidgets.QMainWindow):
 
     def _apply_preset(self, bands: List[EQBand], output_gain_db: float) -> None:
         """Apply a preset to the UI and audio backend."""
+        was_updating = self._updating_table
         self._updating_table = True
         self.band_table.setRowCount(0)
         self.bands.clear()
         for band in bands:
             self.bands.append(band)
             self._append_band_row(band)
-        self._updating_table = False
+        self._updating_table = was_updating
         self.preamp_slider.setValue(int(output_gain_db * 10))
         self._push_bands()
 
@@ -399,6 +618,8 @@ class EqualiserWindow(QtWidgets.QMainWindow):
         self.preset_combo.clear()
         for name in storage.list_presets():
             self.preset_combo.addItem(name)
+        if hasattr(self, "tray_presets_menu"):
+            self._refresh_tray_presets()
 
     def _save_preset_dialog(self) -> None:
         """Show dialog to save current preset with a name."""
@@ -443,11 +664,30 @@ class EqualiserWindow(QtWidgets.QMainWindow):
             self._refresh_preset_list()
             self.status_bar.showMessage(f"Preset '{name}' deleted", 2000)
 
+    def _import_autoeq(self) -> None:
+        """Import an AutoEQ ParametricEQ.txt file."""
+        filepath, _ = QtWidgets.QFileDialog.getOpenFileName(
+            self, "Import AutoEQ Profile", "", "Text files (*.txt);;All files (*)"
+        )
+        if not filepath:
+            return
+        try:
+            bands, preamp_db = parse_autoeq_file(filepath)
+        except Exception as exc:
+            self.status_bar.showMessage(f"AutoEQ import failed: {exc}", 5000)
+            return
+        if not bands:
+            self.status_bar.showMessage("No filters found in file", 3000)
+            return
+        self._apply_preset(bands, preamp_db)
+        self.status_bar.showMessage(f"Imported {len(bands)} bands from AutoEQ", 3000)
+
 
 def run() -> None:
     import sys
 
     app = QtWidgets.QApplication(sys.argv)
+    app.setQuitOnLastWindowClosed(False)
     window = EqualiserWindow()
     window.show()
     sys.exit(app.exec())

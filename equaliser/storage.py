@@ -58,7 +58,11 @@ def _serialize_preset(bands: List[EQBand], output_gain_db: float) -> dict:
 
 def _deserialize_preset(data: dict) -> Tuple[List[EQBand], float]:
     """Convert stored dict back to bands and gain."""
-    bands = [EQBand(**band_data) for band_data in data.get("bands", [])]
+    bands_raw = data.get("bands", [])
+    bands = []
+    for bd in bands_raw:
+        bd.setdefault("filter_type", "peaking")
+        bands.append(EQBand(**bd))
     output_gain_db = data.get("output_gain_db", -3.0)
     return bands, output_gain_db
 
