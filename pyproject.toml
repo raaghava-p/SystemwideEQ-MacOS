@@ -4,23 +4,21 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "equaliser"
-version = "0.1.0"
+version = "0.2.0"
 description = "System-wide parametric EQ for macOS routed through BlackHole"
 authors = [{name = "Raaghava"}]
 readme = "README.md"
 requires-python = ">=3.10"
 dependencies = [
-    "PyQt6>=6.5",
+    "PyQt6>=6.5,<6.8",
+    "PyQt6-Qt6>=6.5,<6.8",
     "sounddevice>=0.4",
     "numpy>=1.24",
     "matplotlib>=3.7",
 ]
 
-[tool.setuptools.package-dir]
-"" = "src"
-
 [tool.setuptools.packages.find]
-where = ["src"]
+where = ["."]
 
 [project.scripts]
 equaliser-app = "equaliser.__main__:run"

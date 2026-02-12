@@ -1,13 +1,22 @@
-# macOS System Parametric EQ
+<p align="center">
+  <img src="docs/icon.png" width="128" alt="Equaliser icon">
+</p>
 
-A Python + PyQt6 desktop app that captures all macOS audio via the BlackHole virtual driver, applies configurable parametric EQ bands in real-time, and forwards the processed mix to your preferred output device.
+# Systemwide Equaliser for MacOS
+
+A Python + PyQt6 desktop app that captures all MacOS audio via the BlackHole virtual driver, applies configurable parametric EQ bands in real-time, and forwards the processed mix to your preferred output device, created with the help of LLMs.
+
+### Disclaimer
+This code was written with the help of an LLM, so it's public domain. Use at your own risk. I made it because macOS doesn't have a system-wide equalizer, and I'm not sure why.
 
 ## Prerequisites
-- **Homebrew packages**: `brew install blackhole-2ch portaudio python@3.11`
+- **Homebrew packages**: Install [Homebrew](https://brew.sh) and run `brew install blackhole-2ch portaudio python@3.13` to pull [BlackHole 2ch](https://github.com/ExistentialAudio/BlackHole), [PortAudio](https://www.portaudio.com), and [Python 3.13](https://www.python.org). Python 3.10+ is supported.
 - **Virtual environment**: `python3 -m venv .venv && source .venv/bin/activate`
 - **Python deps**: `pip install -r requirements.txt`
 - **Expose the package**: `pip install -e .` (or set `PYTHONPATH=src` before running commands)
 - Grant microphone/input permissions to the terminal or app bundle when macOS prompts you.
+
+> **Important (PyQt6 version)**: This app requires PyQt6 6.5–6.7.x. PyQt6 6.8+ has a known bug on macOS ARM64 (Apple Silicon) where the Qt "cocoa" platform plugin fails to load. The `requirements.txt` already pins to `<6.8`.
 
 ## Device Routing Setup
 1. Open **Audio MIDI Setup** ➝ click `+` ➝ **Create Multi-Output Device**.
@@ -22,35 +31,48 @@ source .venv/bin/activate
 pip install -e .  # ensures `python -m equaliser` works without tweaking PYTHONPATH
 python -m equaliser
 ```
-When the GUI opens:
+
+## Usage
+
+![Screenshot](docs/screenshot.png)
+
 - Use **Audio Devices** to choose input/output, sample rate (match Audio MIDI Setup), and buffer size (256 frames ≈ 5.3 ms @ 48 kHz).
 - Click **Start Audio**; use **Stop** before changing devices.
 - Add parametric bands with `Add Band`, edit frequency/gain/Q directly in the table, and remove unwanted rows.
+- Use the **Global Gain / Preamp** slider below the band table to trim or boost the overall mix (±12 dB, default -3 dB) for extra headroom.
 - Toggle `EQ Bypass (A/B)` for instant comparison.
 - Watch the live EQ curve and input/output meters to confirm levels.
 
 ## Testing the DSP Core
 Use the offline harness to validate the filter math without real audio hardware:
 ```bash
-python3 tools/test_dsp.py --freq 1000 --gain 6 --q 1.5 --duration 1.0
+python3 scripts/test_dsp.py --freq 1000 --gain 6 --q 1.5 --duration 1.0
 ```
 This generates a sine wave, runs it through the EQ engine, and prints RMS levels.
 
 ## Troubleshooting
-- **No sound**: Confirm macOS output is set to the Multi-Output Device and that this app shows `Audio running` in the status bar. Restart the audio stream after changing system devices.
+- **No sound**: Confirm MacOS output is set to the Multi-Output Device and that this app shows `Audio running` in the status bar. Restart the audio stream after changing system devices.
 - **Device missing**: Click `Refresh`. If BlackHole is absent, reinstall via Homebrew and reopen Audio MIDI Setup.
 - **Pops or latency**: Lower the buffer size, close heavy apps, or lock everything to the same sample rate (44.1 kHz or 48 kHz). Larger buffers add latency but increase stability.
 - **Clipping**: Reduce band gain or enable negative overall gain in the DSP (default -3 dB headroom). Watch the meters; anything near 0 dBFS risks clipping.
 - **Permission errors**: Allow microphone/input monitoring for the terminal/Python interpreter in System Settings.
+- **Qt cocoa plugin not found**: If you see `qt.qpa.plugin: Could not find the Qt platform plugin "cocoa"`, this is caused by PyQt6 6.8+ on Apple Silicon. Downgrade to PyQt6 6.7.1:
+  ```bash
+  pip install "PyQt6>=6.5,<6.8" "PyQt6-Qt6>=6.5,<6.8"
+  ```
+- **App doesn't start after moving project**: If you moved the project directory, the venv may have stale paths. Recreate it:
+  ```bash
+  rm -rf .venv && python3 -m venv .venv && source .venv/bin/activate && pip install -r requirements.txt && pip install -e .
+  ```
 
-## Building the macOS App Bundle (py2app)
+## Building the MacOS App Bundle (py2app)
 Use `py2app` when you want a self-contained `.app` bundle that can be launched from Finder like any other macOS application.
 
 ```bash
 python -m venv .venv && source .venv/bin/activate
 pip install -r requirements.txt -r requirements-dev.txt
 pip install -e .
-python setup.py py2app
+python scripts/build_app.py py2app
 ```
 
 The build drops `dist/Equaliser.app`. Copy that bundle into `/Applications` (or anywhere else) and launch it; the first run may take a few seconds while macOS verifies the binary. If you plan to distribute the app beyond your own machine, follow Apple’s signing/notarization flow after running `py2app`.
